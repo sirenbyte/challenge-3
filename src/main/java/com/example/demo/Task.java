@@ -28,6 +28,7 @@ package com.example.demo;/*
 //     - hellobeam
 
 import org.apache.beam.sdk.Pipeline;
+import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.io.TextIO;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
@@ -36,12 +37,17 @@ import org.apache.beam.sdk.schemas.annotations.DefaultSchema;
 import org.apache.beam.sdk.schemas.annotations.SchemaCreate;
 import org.apache.beam.sdk.transforms.*;
 import org.apache.beam.sdk.transforms.windowing.*;
+import org.apache.beam.sdk.util.StreamUtils;
 import org.apache.beam.sdk.values.*;
 import org.joda.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 public class Task {
@@ -168,7 +174,7 @@ public class Task {
 
     public static PCollection<Analysis> getAnalysisPCollection(Pipeline pipeline) {
         PCollection<String> words = pipeline.apply(TextIO.read().from("analysis.csv"));
-        PCollection<Analysis> analysisPCollection = words.apply(ParDo.of(new SentimentAnalysisExtractFn()));
+        PCollection<Analysis> analysisPCollection = words.apply(ParDo.of(new SentimentAnalysisExtractFn())).setCoder(AnalysisCoder.of());
         return analysisPCollection;
     }
 
@@ -178,6 +184,36 @@ public class Task {
             String[] items = c.element().split(REGEX_FOR_CSV);
             if(!items[1].equals("Negative"))
                 c.output(new Analysis(items[0].toLowerCase(), items[1], items[2], items[3], items[4], items[5], items[6], items[7]));
+        }
+    }
+
+    static class AnalysisCoder extends Coder<Analysis> {
+        private static final AnalysisCoder INSTANCE = new AnalysisCoder();
+
+        public static AnalysisCoder of() {
+            return INSTANCE;
+        }
+
+        @Override
+        public void encode(Analysis analysis, OutputStream outStream) throws IOException {
+            String line = analysis.word+","+analysis.negative+","+analysis.positive+","+analysis.uncertainty+","+analysis.litigious+","+analysis.strong+","+analysis.weak+","+analysis.constraining;
+            outStream.write(line.getBytes());
+        }
+
+        @Override
+        public Analysis decode(InputStream inStream) throws IOException {
+            final String serializedDTOs = new String(StreamUtils.getBytesWithoutClosing(inStream));
+            String[] items = serializedDTOs.split(";");
+            return new Analysis(items[0].toLowerCase(), items[1], items[2], items[3], items[4], items[5], items[6], items[7]);
+        }
+
+        @Override
+        public List<? extends Coder<?>> getCoderArguments() {
+            return Collections.emptyList();
+        }
+
+        @Override
+        public void verifyDeterministic() {
         }
     }
 
